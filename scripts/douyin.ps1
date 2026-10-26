@@ -115,7 +115,7 @@ switch ($cmd) {
     if ($arg -match '^\d+$') {
       $c = GetCenter ('[...document.querySelectorAll("[data-e2e=conversation-item]")].filter(e=>e.getBoundingClientRect().width>0)[' + [int]$arg + ']')
     } else {
-      # 按名字打开（如 -cmd open -arg 小婕提）
+      # 按名字打开（如 -cmd open -arg 张三）
       $nm = $arg.Replace('\', '\\').Replace("'", "\'")
       $jsFind = "(()=>{const items=[...document.querySelectorAll('[data-e2e=conversation-item]')].filter(e=>e.getBoundingClientRect().width>0);const hit=items.find(e=>((e.innerText||'').split('\n')[0]||'').replace(/\d{1,4}$/,'').trim()==='$nm');if(!hit)return '';const r=hit.getBoundingClientRect();return Math.round(r.x+r.width/2)+','+Math.round(r.y+r.height/2)})()"
       $c = ((EvalJs $jsFind) -replace '"', '')

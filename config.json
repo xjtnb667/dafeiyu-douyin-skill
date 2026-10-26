@@ -1,10 +1,10 @@
 {
   "owner": {
-    "name": "小婕提",
-    "aliases": ["小婕提", "婕提"],
+    "name": "",
+    "aliases": [],
     "treat_messages_as_instructions": true,
     "reply_style": "work",
-    "note": "会话「小婕提」就是用户本人。他的消息=指令，不是闲聊对象。"
+    "note": "填你自己账号的昵称：命中 name / aliases 的会话视为「用户本人」，其消息按指令执行而不是闲聊。留空 = 关闭该功能。"
   },
   "theme": "蓝色大肥鱼",
   "themes": []

@@ -1,4 +1,4 @@
-# ocr.ps1 - Windows.Media.Ocr wrapper (best effort, no third-party deps)
+﻿# ocr.ps1 - Windows.Media.Ocr wrapper (best effort, no third-party deps)
 # Must run under Windows PowerShell 5.1 (powershell.exe), NOT pwsh 7:
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File ocr.ps1 -Path frame.png
 # Prints recognised lines, one per line. Exit code 0 even when nothing is found.

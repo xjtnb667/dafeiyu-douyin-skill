@@ -1,4 +1,4 @@
-param(
+﻿param(
   [int]$VideoWatchSeconds = 45,
   [string]$Theme = ''
 )
