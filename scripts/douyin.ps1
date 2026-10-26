@@ -29,33 +29,25 @@ function GetCenter([string]$jsExpr) {
   return ((EvalJs $expr) -replace '"','')
 }
 
-# ---- outbound message counter (every N sent messages -> also send a fixed line) ----
+# ---- outbound message counter (纯统计，不额外发送任何内容) ----
 $configFile  = Join-Path $repoRoot 'config.json'
 $counterFile = Join-Path $stateDir 'message-counter.json'
-$cfgMarker = ''; $cfgEvery = 0
-if (Test-Path $configFile) {
-  try {
-    $loaded = Get-Content $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
-    # optional tail signature: config.advanced.sig_b64 (base64/utf8) -> plain text
-    if ($loaded.advanced -and $loaded.advanced.sig_b64) {
-      try { $cfgMarker = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$loaded.advanced.sig_b64)) } catch { $cfgMarker = '' }
-      $cfgEvery = [int]$loaded.advanced.sig_every
-    }
-    elseif ($loaded.marker) {          # legacy plain key
-      $cfgMarker = [string]$loaded.marker
-      $cfgEvery = [int]$loaded.marker_every
-    }
-  } catch { }
-}
 
 # ---- 号主身份：config.owner.name / aliases。会话命中即视为“用户本人”，其消息=指令 ----
+# ---- 默认主题：config.theme（刷视频关键词），未配置时回落到 'douyin' ----
 $script:OwnerNames = @()
+$script:ThemeDefault = 'douyin'
 if (Test-Path $configFile) {
   try {
     $ct = Get-Content $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($ct.owner) {
       if ($ct.owner.name) { $script:OwnerNames += [string]$ct.owner.name }
       if ($ct.owner.aliases) { foreach ($a in $ct.owner.aliases) { if ($a) { $script:OwnerNames += [string]$a } } }
+    }
+    if ($ct.theme) { $script:ThemeDefault = [string]$ct.theme }
+    elseif ($ct.themes) {
+      $firstTheme = @($ct.themes) | Where-Object { $_ } | Select-Object -First 1
+      if ($firstTheme) { $script:ThemeDefault = [string]$firstTheme }
     }
   } catch { }
 }
@@ -75,27 +67,10 @@ function Set-SentCount([int]$v) {
   @{ sent = $v; updated_at = (Get-Date).ToString('s') } | ConvertTo-Json | Set-Content -Path $counterFile -Encoding UTF8
 }
 
-function Send-RawText([string]$text) {
-  $c = GetCenter '[...document.querySelectorAll("div[contenteditable=true]")].find(x=>x.getBoundingClientRect().width>0)'
-  if (-not $c) { return $false }
-  InvokeCdp 'ipoint' $c | Out-Null
-  Start-Sleep -Milliseconds 400
-  InvokeCdp 'itext' $text | Out-Null
-  Start-Sleep -Milliseconds 400
-  InvokeCdp 'ikey' 'Enter' | Out-Null
-  Start-Sleep -Seconds 1
-  return $true
-}
-
-# increments the counter; when it hits a multiple of marker_every, sends the marker.
-# the marker itself is NOT counted. returns '' or 'MARKER@<count>'
+# 计数 +1（仅统计已发出的消息条数，供 -cmd counter 查看；不做任何附加发送）
 function After-Sent {
   $n = (Get-SentCount) + 1
   Set-SentCount $n
-  if ($cfgEvery -gt 0 -and $cfgMarker -and ($n % $cfgEvery -eq 0)) {
-    [void](Send-RawText $cfgMarker)
-    return ('MARKER@' + $n)
-  }
   return ''
 }
 
@@ -170,12 +145,12 @@ switch ($cmd) {
     Start-Sleep -Milliseconds 400
     InvokeCdp 'ikey' 'Enter' | Out-Null
     Start-Sleep -Seconds 1
-    $marker = After-Sent
-    if ($marker) { 'sent ' + $marker } else { 'sent' }
+    [void](After-Sent)
+    'sent'
   }
 
   'search' {
-    $kw = if ($arg) { $arg } else { 'douyin' }
+    $kw = if ($arg) { $arg } elseif ($script:ThemeDefault) { $script:ThemeDefault } else { 'douyin' }
     $enc = [uri]::EscapeDataString($kw)
     EvalJs ('(()=>{location.href="https://www.douyin.com/search/' + $enc + '?type=video";return "go"})()') | Out-Null
     Start-Sleep -Seconds 9
@@ -183,7 +158,7 @@ switch ($cmd) {
   }
 
   'watch' {
-    $kw = if ($arg) { $arg } else { 'douyin' }
+    $kw = if ($arg) { $arg } elseif ($script:ThemeDefault) { $script:ThemeDefault } else { 'douyin' }
     $enc = [uri]::EscapeDataString($kw)
     EvalJs ('(()=>{location.href="https://www.douyin.com/search/' + $enc + '?type=video";return "go"})()') | Out-Null
     Start-Sleep -Seconds 9
@@ -324,9 +299,8 @@ switch ($cmd) {
     Start-Sleep -Milliseconds 400
     [void](InvokeCdp 'ikey' 'Enter')
     Start-Sleep -Seconds 2
-    $marker2 = After-Sent
-    $res = if ($quoted) { 'quoted-sent' } else { 'DEGRADE_QUOTE-sent' }
-    if ($marker2) { $res + ' ' + $marker2 } else { $res }
+    [void](After-Sent)
+    if ($quoted) { 'quoted-sent' } else { 'DEGRADE_QUOTE-sent' }
   }
 
     'share-list' {
@@ -451,7 +425,7 @@ switch ($cmd) {
 
   'counter' {
     if ($arg -eq 'reset') { Set-SentCount 0; 'counter=0' }
-    else { 'counter=' + (Get-SentCount) + ' every=' + $cfgEvery + ' next_marker_at=' + ((([math]::Floor((Get-SentCount) / [math]::Max($cfgEvery,1)) + 1) * [math]::Max($cfgEvery,1))) }
+    else { 'counter=' + (Get-SentCount) }
   }
 
   'tick' {

@@ -1,6 +1,6 @@
 param(
   [int]$VideoWatchSeconds = 45,
-  [string]$Theme = 'douyin'
+  [string]$Theme = ''
 )
 
 # ASCII-only on purpose (PowerShell 5.1 mangles UTF-8 literals without BOM).
@@ -13,6 +13,21 @@ $StateDir = Join-Path $root 'state'
 $LogDir = Join-Path $StateDir 'logs'
 New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 $log = Join-Path $LogDir ((Get-Date -Format 'yyyy-MM-dd') + '.log')
+
+# Theme resolution: -Theme > config.json theme > config.json themes[0] > 'douyin'
+$cfgFile = Join-Path $root 'config.json'
+$cfgTheme = ''
+if (Test-Path $cfgFile) {
+  try {
+    $cfg = Get-Content $cfgFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($cfg.theme) { $cfgTheme = [string]$cfg.theme }
+    elseif ($cfg.themes) {
+      $first = @($cfg.themes) | Where-Object { $_ } | Select-Object -First 1
+      if ($first) { $cfgTheme = [string]$first }
+    }
+  } catch { }
+}
+if (-not $Theme) { $Theme = if ($cfgTheme) { $cfgTheme } else { 'douyin' } }
 
 function Log([string]$msg) {
   $line = '[' + (Get-Date -Format 'HH:mm:ss') + '] ' + $msg

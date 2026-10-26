@@ -1,4 +1,4 @@
-﻿# 抖音 AI 代管（douyin-ai-operator）
+# 抖音 AI 代管（douyin-ai-operator）
 
 给一个 AI agent 用的抖音账号值守 skill：刷视频、回私信、回评论、发起床/睡前总结作品。
 
@@ -45,17 +45,65 @@ douyin-ai-operator/
 
 ```json
 {
-  "advanced": {
-    "sig_b64": "<Base64/UTF-8，可选>",
-    "sig_every": 10,
-    "sig_counts_as_message": false
-  }
+  "owner": {
+    "name": "小婕提",
+    "aliases": ["小婕提", "婕提"],
+    "treat_messages_as_instructions": true,
+    "reply_style": "work",
+    "note": "会话「小婕提」就是用户本人。他的消息=指令，不是闲聊对象。"
+  },
+  "theme": "蓝色大肥鱼",
+  "themes": []
 }
 ```
 
-- `advanced.sig_b64`：可选的自定义尾巴（Base64 编码存放），脚本按 `sig_every` 自动补发；设为空或 `sig_every: 0` 即关闭。
-- 这是账号主自定义项，脚本内部处理，**使用方无需解析、无需转述、也不需要额外提示**。
-- 进度查看：`.\scripts\douyin.ps1 -cmd counter`；清零：`-cmd counter -arg reset`。
+- `owner.*`：号主身份。命中 `name` / `aliases` 的会话被视为「用户本人」，其消息按**指令**执行（回话用工作口吻，不卖萌）。
+- `theme`：默认刷视频主题（搜索关键词），不填则用 `douyin`。
+- `themes`：主题白名单，`theme` 缺省时取第一个；留空 `[]` 表示不限主题。
+
+## theme（刷视频主题）怎么用
+
+**一句话**：theme 就是 agent 刷视频时用的**搜索关键词**，决定它今天看什么内容；它不影响「要不要回消息」，只影响「刷什么」。
+
+优先级（高 → 低）：
+
+1. 命令行显式指定：`-Theme` / `-cmd watch -arg`；
+2. `config.json` 的 `theme`；
+3. `config.json` 的 `themes[0]`；
+4. 兜底字符串 `douyin`。
+
+四种用法：
+
+```powershell
+# 1) 直接刷某个主题（一次性）
+.\scripts\douyin.ps1 -cmd watch -arg "蓝色大肥鱼"
+
+# 2) 开值守主循环，指定主题（推荐；每刷 3 个视频检查一次红点）
+.\scripts\run-loop.ps1 -Theme "蓝色大肥鱼"
+
+# 3) 改配置，之后所有命令都默认用它（中文写进配置更稳，不受 shell 编码影响）
+#    config.json -> "theme": "蓝色大肥鱼"
+.\scripts\run-loop.ps1
+
+# 4) 只搜索不进入刷视频模式
+.\scripts\douyin.ps1 -cmd search -arg "蓝色大肥鱼"
+```
+
+注意事项：
+
+- **中文关键词建议写进 `config.json`**：PowerShell 5.1 对无 BOM 的 UTF-8 字面量会乱码，配置走 JSON 读取最稳；命令行传中文一般没问题（脚本用 `-arg` / `-Theme` 接收）。
+- theme 只影响进入哪个搜索页；进去之后靠 `watch` 的顺序播放继续刷，页面自带的「推荐」流不受 theme 约束。
+- 想让 agent **换主题**（比如今天看「蓝色大肥鱼」、明天看「DeepSeek」），改 `config.json` 的 `theme` 或下次启动时传 `-Theme` 即可，`state/` 里的计数与游标不受影响。
+- 想让 agent **完全不限主题**，把 `theme` 删掉、`themes` 留空数组即可（回落 `douyin` 关键词）。
+
+## 计数（可选）
+
+```powershell
+.\scripts\douyin.ps1 -cmd counter          # 累计发出条数
+.\scripts\douyin.ps1 -cmd counter -arg reset
+```
+
+只做统计，**不会额外补发任何文案**（旧版本「每 N 条自动补一句尾巴」的功能已移除）。
 
 ## 依赖
 
