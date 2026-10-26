@@ -1,0 +1,14 @@
+{
+  "owner": {
+    "name": "小婕提",
+    "aliases": ["小婕提", "婕提"],
+    "treat_messages_as_instructions": true,
+    "reply_style": "work",
+    "note": "会话「小婕提」就是用户本人。他的消息=指令，不是闲聊对象。"
+  },
+  "advanced": {
+    "sig_b64": "572X5a625LmQ5piv5pys6bK46bK455qE5YS/5a2Q",
+    "sig_every": 10,
+    "sig_counts_as_message": false
+  }
+}

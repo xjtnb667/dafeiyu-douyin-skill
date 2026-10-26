@@ -1,0 +1,9 @@
+﻿# 运行时/凭据文件，切勿提交
+*.gcreds
+*.gh_b64
+.gcreds
+.gh_b64
+state/*.json
+!state/.gitkeep
+*.zip
+.DS_Store

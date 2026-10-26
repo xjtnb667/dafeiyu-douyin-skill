@@ -1,0 +1,7 @@
+{
+  "_comment": "最后回复过的评论；必须长期持久化，隔夜/关机后仍能续跑",
+  "newest_comment_id": null,
+  "video_id": null,
+  "ts": null,
+  "replied_today": 0
+}
