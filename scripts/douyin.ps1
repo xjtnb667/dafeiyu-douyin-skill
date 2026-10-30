@@ -87,20 +87,22 @@ function After-Sent {
 #   exactly that).
 # =====================================================================
 
-$jsUiState = '(()=>{const vis=e=>{if(!e)return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0};const url=location.href;const items=[...document.querySelectorAll("[data-e2e=conversation-item]")].filter(vis).length;const dlg=vis(document.querySelector("[data-e2e=im-dialog]"))?1:0;const entry=[...document.querySelectorAll("[data-e2e=im-entry]")].filter(vis).length>0||[...document.querySelectorAll("div,span,a")].some(e=>vis(e)&&/^\u6d88\u606f/.test((e.innerText||"").trim()));const tab=[...document.querySelectorAll("div,span")].filter(e=>vis(e)&&/^\u8bc4\u8bba\(\d+\)$/.test((e.innerText||"").trim())).length>0;const v=document.querySelector("video");return (/\/chat/.test(url)?1:0)+"|"+items+"|"+dlg+"|"+(entry?1:0)+"|"+(tab?1:0)+"|"+(!!v&&!v.paused?1:0)+"|"+url.slice(0,90)})()'
+$jsUiState = '(()=>{const vis=e=>{if(!e)return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0};const url=location.href;const items=[...document.querySelectorAll("[data-e2e=conversation-item]")].filter(vis).length;const dlg=vis(document.querySelector("[data-e2e=im-dialog]"))?1:0;const entry=[...document.querySelectorAll("[data-e2e=im-entry]")].filter(vis).length>0||[...document.querySelectorAll("div,span,a")].some(e=>vis(e)&&/^\u6d88\u606f/.test((e.innerText||"").trim()));const tab=[...document.querySelectorAll("div,span")].filter(e=>vis(e)&&/^\u8bc4\u8bba\(\d+\)$/.test((e.innerText||"").trim())).length>0;const chat=(vis(document.querySelector(".messageMessageListlist"))||vis(document.querySelector(".messageEditorinputArea")))?1:0;const sf=!!(document.activeElement&&(document.activeElement.getAttribute("placeholder")==="\u641c\u7d22"||/search/i.test(String(document.activeElement.className||""))))?1:0;const v=document.querySelector("video");return (/\/chat/.test(url)?1:0)+"|"+items+"|"+dlg+"|"+(entry?1:0)+"|"+(tab?1:0)+"|"+(!!v&&!v.paused?1:0)+"|"+chat+"|"+sf+"|"+url.slice(0,90)})()'
 
 function Get-UiState {
   $s = ((EvalJs $jsUiState) -replace '"', '')
   $p = $s -split '\|'
-  if ($p.Count -lt 7) { return $null }
+  if ($p.Count -lt 9) { return $null }
   return [pscustomobject]@{
     isChat       = ($p[0] -eq '1')
     items        = [int]$p[1]
-    dialog       = ($p[2] -eq '1')
+    dialog       = ($p[2] -eq '1')   # 注意：[data-e2e=im-dialog] 是「整个私信面板」，不是聊天框
     imEntry      = ($p[3] -eq '1')
     commentPanel = ($p[4] -eq '1')
     playing      = ($p[5] -eq '1')
-    url          = $p[6]
+    chat         = ($p[6] -eq '1')   # 真聊天框：有消息列表或聊天编辑器
+    searchFocused = ($p[7] -eq '1')  # 搜索框拿到焦点 = 列表被搜索结果顶掉
+    url          = $p[8]
   }
 }
 
@@ -127,7 +129,7 @@ function Open-Conversation([string]$who) {
 }
 
 # Click the back chevron at the chat panel's top-left; returns ok|xy or fail|why
-$jsBack = '(()=>{const vis=e=>{if(!e)return false;const r=e.getBoundingClientRect();return r.width>4&&r.height>4};const panel=document.querySelector("[data-e2e=im-dialog]");if(!panel)return "fail|no-chat";const pr=panel.getBoundingClientRect();let cands=[...panel.querySelectorAll("[aria-label],[title],[class*=back],[class*=Back],[data-e2e]")].filter(e=>vis(e)&&/back|\u8fd4\u56de/i.test((e.getAttribute("aria-label")||"")+(e.getAttribute("title")||"")+(e.getAttribute("data-e2e")||"")+(String(e.className||""))));if(!cands.length){cands=[...panel.querySelectorAll("div,span,svg,button")].filter(e=>{const r=e.getBoundingClientRect();return vis(e)&&r.width>8&&r.width<56&&r.height>8&&r.height<56&&r.x<pr.x+70&&r.y<pr.y+80});}if(!cands.length)return "fail|no-back-btn";const e=cands[0];const r=e.getBoundingClientRect();return "ok|"+Math.round(r.x+r.width/2)+","+Math.round(r.y+r.height/2)})()'
+$jsBack = '(()=>{const vis=e=>{if(!e)return false;const r=e.getBoundingClientRect();return r.width>4&&r.height>4};const panel=document.querySelector("[data-e2e=im-dialog]");if(!panel)return "fail|no-chat";const pr=panel.getBoundingClientRect();let cands=[...panel.querySelectorAll("[aria-label],[title],[class*=back],[class*=Back],[data-e2e]")].filter(e=>vis(e)&&/back|\u8fd4\u56de/i.test((e.getAttribute("aria-label")||"")+(e.getAttribute("title")||"")+(e.getAttribute("data-e2e")||"")+(String(e.className||""))));if(!cands.length){cands=[...panel.querySelectorAll("div,span,svg,button")].filter(e=>{const r=e.getBoundingClientRect();return vis(e)&&r.width>8&&r.width<56&&r.height>8&&r.height<56&&r.x<pr.x+70&&r.y<pr.y+80});}cands=cands.filter(e=>{if(e.tagName==="INPUT"||e.tagName==="TEXTAREA")return false;let n=e;for(let i=0;i<4&&n;i++){const c=String(n.className&&n.className.baseVal===undefined?n.className:n.className.baseVal);if(/search/i.test(c))return false;n=n.parentElement}return true});if(!cands.length)return "fail|no-back-btn";const e=cands[0];const r=e.getBoundingClientRect();return "ok|"+Math.round(r.x+r.width/2)+","+Math.round(r.y+r.height/2)})()'
 
 $jsIm = '(()=>{const e=document.querySelector("[data-e2e=im-entry]");const s=e?(e.innerText||"").replace(/\n/g,""):"";const m=s.match(/\d+/);return JSON.stringify({raw:s,unread:!!m,n:m?Number(m[0]):0})})()'
 
@@ -486,7 +488,7 @@ switch ($cmd) {
   'ui' {
     $st = Get-UiState
     if (-not $st) { 'NO_CDP'; break }
-    (@{ url = $st.url; isChatPage = $st.isChat; dmItems = $st.items; chatOpen = $st.dialog; msgEntry = $st.imEntry; commentPanel = $st.commentPanel; videoPlaying = $st.playing } | ConvertTo-Json -Compress)
+    (@{ url = $st.url; isChatPage = $st.isChat; dmItems = $st.items; panelOpen = $st.dialog; chatOpen = $st.chat; searchFocused = $st.searchFocused; msgEntry = $st.imEntry; commentPanel = $st.commentPanel; videoPlaying = $st.playing } | ConvertTo-Json -Compress)
   }
 
   'dock' {
@@ -528,16 +530,26 @@ switch ($cmd) {
         [void](InvokeCdp 'ipoint' $c)
         Start-Sleep -Seconds 3
         $trace += 'msg-panel'
+        # 面板里那个搜索框一旦拿到焦点，列表就被搜索结果顶掉（且清空/ESC 都救不回来）
+        [void]((EvalJs '(()=>{if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();return 1})()'))
+        Start-Sleep -Milliseconds 800
         $st = Get-UiState
+        if ($st -and $st.searchFocused) {
+          EvalJs '(()=>{location.href="https://www.douyin.com/?recommend=1";return "go"})()' | Out-Null
+          Start-Sleep -Seconds 9
+          $trace += 'reload(search)'
+          $st = Get-UiState
+        }
+        if ($st -and $st.chat) { [void](& $PSCommandPath -cmd dmback); $st = Get-UiState }
       }
     }
     if (-not $st) { 'NO_CDP'; break }
-    $ok = ($st.commentPanel -and $st.items -gt 0 -and -not $st.isChat)
+    $ok = ($st.commentPanel -and $st.items -gt 0 -and -not $st.isChat -and -not $st.chat -and -not $st.searchFocused)
     if ($ok -and -not $checkOnly) {
       (@{ at = (Get-Date).ToString('s'); items = $st.items; url = $st.url } | ConvertTo-Json -Compress) |
         Set-Content -Path (Join-Path $stateDir 'dock.json') -Encoding UTF8
     }
-    (@{ docked = $ok; steps = @($trace); commentPanel = $st.commentPanel; dmItems = $st.items; chatOpen = $st.dialog; videoPlaying = $st.playing; url = $st.url } | ConvertTo-Json -Compress)
+    (@{ docked = $ok; steps = @($trace); commentPanel = $st.commentPanel; dmItems = $st.items; chatOpen = $st.chat; panelOpen = $st.dialog; searchFocused = $st.searchFocused; videoPlaying = $st.playing; url = $st.url } | ConvertTo-Json -Compress)
   }
 
   'dmback' {
@@ -545,8 +557,10 @@ switch ($cmd) {
     if ($r -notmatch '^ok\|(\d+),(\d+)$') { $r; break }
     [void](InvokeCdp 'ipoint' ($Matches[1] + ',' + $Matches[2]))
     Start-Sleep -Milliseconds 1500
+    ((EvalJs '(()=>{if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();return 1})()')) | Out-Null
     $st = Get-UiState
-    if ($st -and $st.items -gt 0 -and -not $st.dialog) { 'back-ok|' + $st.items } else { 'back-UNVERIFIED|dialog=' + $(if ($st) { $st.dialog } else { '?' }) }
+    if ($st -and $st.items -gt 0 -and -not $st.chat) { 'back-ok|' + $st.items }
+    else { 'back-UNVERIFIED|chat=' + $(if ($st) { $st.chat } else { '?' }) + '|items=' + $(if ($st) { $st.items } else { '?' }) + '|search=' + $(if ($st) { $st.searchFocused } else { '?' }) }
   }
 
   'dmreply' {
@@ -555,6 +569,7 @@ switch ($cmd) {
     if (-not $arg2) { throw 'arg2 = text to send' }
     $st = Get-UiState
     if (-not $st) { 'NO_CDP'; break }
+    if ($st.searchFocused) { 'SEARCH_BOX_FOCUSED (reload the page, then -cmd dock)'; break }
     if ($st.items -eq 0) { 'NOT_DOCKED (run -cmd dock first)'; break }
     $c = Open-Conversation $arg
     if (-not $c) { 'NOTFOUND'; break }
@@ -563,7 +578,7 @@ switch ($cmd) {
     for ($i = 0; $i -lt 8; $i++) {
       Start-Sleep -Milliseconds 500
       $s2 = Get-UiState
-      if ($s2 -and $s2.dialog) { $opened = $true; break }
+      if ($s2 -and $s2.chat) { $opened = $true; break }
     }
     if (-not $opened) { 'NO_CHAT_OPEN'; break }
     $e = Get-ChatEditorCenter

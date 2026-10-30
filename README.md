@@ -202,3 +202,12 @@ douyin-ai-operator/
 
 - **不要用 `--disable-gpu` / `--headless` 启动**：私信里分享的视频和图集依赖 GPU 合成，禁用后画面全黑，看不到内容也就无从回复。
 - `[分享视频]` / `[分享图集]` 卡片是**悬停出现按钮**的交互：脚本 `share-open` 会 hover ~0.9s 再单击一次；手工复现时也要这样。
+
+
+## 已知坑（2026-10-30 真机验证）
+
+- **私信面板里那个搜索框千万别碰。** 它一拿到焦点，右侧列表就被搜索结果顶掉，看着像「一条私信都没有」；而且清空输入、按 ESC 都恢复不了，只能重载页面（`-cmd dock` 里已内置 blur + 重载兜底）。
+- **`[data-e2e=im-dialog]` 是整个私信面板，不是聊天框。** 判断聊天开没开要用 `.messageMessageListlist` / `.messageEditorinputArea`（`-cmd ui` 里的 `chatOpen` 字段）。
+- **面板左上角最靠左的小图标是搜索放大镜。** `dmback` 的几何挑选已排除 `class` 含 `search` 的元素和 `input`/`textarea`。
+- **窗口太窄时三栏摆不下**（实测 1372 宽的视口里私信列表第一行落在 x≈1381，视口外）：把窗口拉到 1600 宽以上再用。
+- **真实鼠标事件点不开私信抽屉**（它关着时是 `transform: translateX(...)`）：要在元素上派发 `pointerover/pointerenter/mouseover/mousedown/mouseup/click`，Node 版脚本里叫 `tap()`。

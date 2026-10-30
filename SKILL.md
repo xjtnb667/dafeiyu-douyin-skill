@@ -110,18 +110,22 @@ limits:
 2. **先开评论区**：点右栏评论数（一个纯数字）→ 中间出现评论区面板
    - 退化路径：点开任意视频 → 点它下面的「评论(n)」tab
 3. **再点消息**：右上「消息」图标 → 右侧出现私信列表面板
-4. 判据（脚本内置）：`commentPanel && dmItems > 0 && !isChatPage` → 写 `state/dock.json`
+4. 判据（脚本内置）：`commentPanel && dmItems > 0 && !isChatPage && !chat && !searchFocused` → 写 `state/dock.json`
+   - `chat` = 真聊天框开着（有 `.messageMessageListlist` 或 `.messageEditorinputArea`）
+   - `searchFocused` = 私信面板里那个搜索框拿到了焦点 —— **这种状态下列表被搜索结果顶掉，看着就像「一条私信都没有」**
 
 `-cmd dock -arg check` 只检查不摆；`-cmd dock -arg reset` 强制回推荐流再摆。
 **摆好就一直用着**，不要每轮都回流/刷新——一刷新就得重摆。
 
 #### 会话开合（`open` / `dmback`）
 
-- 点会话行 → 私信面板**就地**变成聊天框（`[data-e2e=im-dialog]`），页面不跳
+- 点会话行 → 私信面板**就地**变成聊天框，页面不跳
+- ⚠️ **`[data-e2e=im-dialog]` 是整个私信面板，不是聊天框**：列表态和聊天态都在它里面。判断「聊天有没有开」只看 `.messageMessageListlist` / `.messageEditorinputArea`（脚本里的 `chat` 字段）。
 - 发完必须回列表：会话框**左上角那个返回箭头**（`-cmd dmback`）
   - 找法：先按 `aria-label` / `title` / class / `data-e2e` 匹配 `back|返回`；取不到就用几何——面板左上角 8–56px 的小元素
-  - 判据：`items > 0` 且 `dialog` 消失 → `back-ok|N`；否则 `back-UNVERIFIED`（**别**当成功接着点下一个）
-- 一条龙：`-cmd dmreply -arg "张三" -arg2 "正文"` = 开会话 → 等 dialog → 定位**聊天框** → 输入 → Enter → 回读 dialog 内文校验 → 自动返回
+  - ⚠️ **面板左上角最靠左的那个小图标是搜索放大镜，不是返回键**。几何挑选必须排除 `class` 里带 `search` 的元素和 `input`/`textarea`（脚本已内置这道过滤）。点错的后果：进搜索态 → 列表被顶掉 → 看着像没有私信；而且**清空搜索框、按 ESC 都救不回来**，只能重载页面。
+  - 判据：`items > 0` 且 `chat` 为 false → `back-ok|N`；否则 `back-UNVERIFIED|chat=…|items=…|search=…`（**别**当成功接着点下一个）
+- 一条龙：`-cmd dmreply -arg "张三" -arg2 "正文"` = 开会话 → 等 `chat` 为真 → 定位**聊天框** → 输入 → Enter → 回读面板内文校验 → 自动返回；入口处 `searchFocused` 为真时直接返回 `SEARCH_BOX_FOCUSED`，让你先重载再 `dock`。
 
 #### 两个输入框，别搞混（三栏布局最大的坑）
 
