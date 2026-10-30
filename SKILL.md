@@ -55,8 +55,12 @@ limits:
 | 命令 | 作用 |
 |---|---|
 | `start` / `status` / `reddots` | 起浏览器 / 看状态 / 看未读红点 |
+| `ui` | 当前页面是不是三栏常驻态（`isChatPage` / `dmItems` / `chatOpen` / `commentPanel`） |
+| `dock [-arg check\|reset]` | 摆出/检查三栏常驻态（视频 + 评论区 + 私信列表），成功写 `state/dock.json` |
+| `dmback` | 从会话框返回私信列表（左上角返回键，点完回读校验） |
+| `dmreply <名字> <正文>` | 一条龙：开会话 → 发 → 回读校验 → 自动返回列表 |
 | `dms` / `lastside` / `open <i\|名称>` / `messages` / `chat` | 会话列表（含 `owner` / `needs_reply`） / 当前会话最后一条是谁说的 / 按序号或昵称打开（如 `open 张三`） / 读最近消息 |
-| `send <text>` / `quote-send <text>` | 发消息 / 引用回复（悬停→右键→「回复」→输入→Enter；失败自动降级） |
+| `send <text>` / `quote-send <text>` | 发消息 / 引用回复（**只在已打开的会话框内**操作；没有会话框返回 `NO_CHAT_OPEN`） |
 | `mousemove <x,y>` / `rclick <x,y>` | 底层：移动光标 / 右键菜单（quote-send 内部已用） |
 | `elementat <x,y>` | 诊断：这个坐标上是什么元素（tag/文本/href/rect） |
 | `guardclick <x,y>` | 安全点击：命中主页/发布/充值/设置/删除等危险区直接拒绝（返回 `MISCLICK_BLOCKED`） |
@@ -73,11 +77,66 @@ limits:
 - 元素锚点（抖音网页版，可能随版本变化；取不到就退化到文本匹配）：
   - 私信入口：`[data-e2e="im-entry"]`（innerText 为「消息」；带数字即未读）
   - 会话项：`[data-e2e="conversation-item"]`
-  - 输入框：`div[contenteditable=true]`；IM 内发送：按 `Enter`
-  - 评论区发送：输入文字后点**红色圆形 ↑ 按钮**
+  - 会话框：`[data-e2e="im-dialog"]`；返回列表键在它**左上角**
+  - 输入框有**两个**，必须分开找：聊天框 `Get-ChatEditorCenter`（dialog 内）、评论框 `Get-CommentEditorCenter`（dialog 外）。**禁止**再写「找第一个 contenteditable」这种全局查找。
+  - IM 内发送：按 `Enter`；评论区发送：输入文字后点**红色圆形 ↑ 按钮**
 - 回复评论在站内完成，**不要进创作者中心**（除非要发作品）。
 
 ## 3. 每日流程
+
+### 3.0 常驻三栏（推荐：先摆好这一步，再干别的）
+
+抖音网页版私信有两种入口：
+
+- **① 就地弹层**：在 `douyin.com` 里点右上「消息」，面板盖在推荐流上，**页面不跳转**
+- **② 整页私信**：`douyin.com/chat`，一进去整页都是私信
+
+**一律用 ①。** 每次跳页都要重新加载，回复慢，稍一刷新状态就丢。
+
+#### 三栏形态（目标态）
+
+```
+┌──────────────┬────────────────┬────────────────┐
+│ 推荐流视频    │ 视频评论区面板  │ 私信列表面板    │
+│ （左边播放）  │ （跟着视频换）  │ （会话 + 聊天） │
+└──────────────┴────────────────┴────────────────┘
+```
+
+要点：**中间的评论区面板是「跟着视频走」的常驻层**。只要它开过一次，下滑换视频时它会自动换成新视频的评论，不会消失——所以它不是「某个视频的属性」，而是这个页面的一个层。
+
+#### 怎么摆出来（`-cmd dock`）
+
+1. 进 `https://www.douyin.com/?recommend=1`
+2. **先开评论区**：点右栏评论数（一个纯数字）→ 中间出现评论区面板
+   - 退化路径：点开任意视频 → 点它下面的「评论(n)」tab
+3. **再点消息**：右上「消息」图标 → 右侧出现私信列表面板
+4. 判据（脚本内置）：`commentPanel && dmItems > 0 && !isChatPage` → 写 `state/dock.json`
+
+`-cmd dock -arg check` 只检查不摆；`-cmd dock -arg reset` 强制回推荐流再摆。
+**摆好就一直用着**，不要每轮都回流/刷新——一刷新就得重摆。
+
+#### 会话开合（`open` / `dmback`）
+
+- 点会话行 → 私信面板**就地**变成聊天框（`[data-e2e=im-dialog]`），页面不跳
+- 发完必须回列表：会话框**左上角那个返回箭头**（`-cmd dmback`）
+  - 找法：先按 `aria-label` / `title` / class / `data-e2e` 匹配 `back|返回`；取不到就用几何——面板左上角 8–56px 的小元素
+  - 判据：`items > 0` 且 `dialog` 消失 → `back-ok|N`；否则 `back-UNVERIFIED`（**别**当成功接着点下一个）
+- 一条龙：`-cmd dmreply -arg "张三" -arg2 "正文"` = 开会话 → 等 dialog → 定位**聊天框** → 输入 → Enter → 回读 dialog 内文校验 → 自动返回
+
+#### 两个输入框，别搞混（三栏布局最大的坑）
+
+三栏状态下屏幕上同时有两个 `div[contenteditable=true]`：
+
+| 位置 | 谁在用 | 找法 |
+|---|---|---|
+| 中间评论区底部 | `reply-comment` | `Get-CommentEditorCenter`（显式排除 dialog 里的输入框） |
+| 右边私信对话底部 | `send` / `quote-send` / `dmreply` | `Get-ChatEditorCenter`（**只在 `[data-e2e=im-dialog]` 里找**） |
+
+以前 `send` 是「找第一个可见的 contenteditable」，单栏时没毛病；三栏下第一个往往是**评论框**——字打进去、Enter 一发，就成了一条视频评论。所以现在 `send` 没有 dialog 直接返回 `NO_CHAT_OPEN`，不瞎猜。
+
+#### 通知
+
+通知是**悬浮层**，点开只盖在上面，不影响视频 / 评论区 / 私信三栏的存在。所以：点开看一眼、该回的回，看完关掉——**不需要为它导航或重摆布局**。
 
 ### 3.1 开工（用户说「起床了」）
 

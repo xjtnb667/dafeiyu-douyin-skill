@@ -41,6 +41,41 @@ douyin-ai-operator/
 
 `references/spec-review.md` 记录了**原始口述规则的勘误与补漏**（10 处必须有歧义/自相矛盾之处 + 13 项缺口），以及修正后的唯一权威算法。给 agent 时建议一并提供：SKILL.md 是流程，spec-review 是"为什么这么定"。
 
+## 常驻三栏（推荐用法，v2.2+）
+
+抖音网页版的私信有两种入口：**就地弹层**（在 `douyin.com` 里点「消息」，面板盖在推荐流上，页面不跳转）和**整页私信**（`douyin.com/chat`）。这个 skill 现在走前一种，并把页面摆成一个常驻的三栏：
+
+```
+┌──────────────┬────────────────┬────────────────┐
+│ 推荐流视频    │ 视频评论区面板  │ 私信列表面板    │
+└──────────────┴────────────────┴────────────────┘
+```
+
+中间那块评论区是**跟着视频走**的：开过一次之后，下滑换视频它会自动换成新视频的评论，一直存在。所以摆一次就能一直用，不用每轮回流。
+
+```powershell
+# 1) 起浏览器（Edge + CDP，别加 --headless / --disable-gpu）
+.\scripts\douyin.ps1 -cmd start
+
+# 2) 摆三栏（视频 + 评论区 + 私信列表），成功后写 state/dock.json
+.\scripts\douyin.ps1 -cmd dock
+.\scripts\douyin.ps1 -cmd dock -arg check     # 只检查，不摆
+.\scripts\douyin.ps1 -cmd dock -arg reset     # 强制回推荐流再摆
+
+# 3) 看现在是不是三栏态
+.\scripts\douyin.ps1 -cmd ui
+
+# 4) 回私信：开会话 → 发 → 校验 → 自动返回列表
+.\scripts\douyin.ps1 -cmd dmreply -arg "张三" -arg2 "收到，我这就去"
+#    或者分步：open 张三 → send "…" → dmback
+```
+
+要点：
+
+- **会话是就地打开的**（右边面板里换成聊天框），页面不跳转；发完点会话框**左上角的返回箭头**回列表（`-cmd dmback`，脚本会回读校验）。
+- **屏幕上同时有两个输入框**：中间评论框、右边聊天框。`send` / `quote-send` 只在会话框内找编辑器（找不到就返回 `NO_CHAT_OPEN`），`reply-comment` 只在会话框外找。别再用「第一个可见的 contenteditable」那种写法——三栏下它会打到评论区去。
+- **通知是悬浮层**：点开只看一眼，不影响三栏存在，不用为它导航。
+
 ## 可调参数（config.json）
 
 ```json

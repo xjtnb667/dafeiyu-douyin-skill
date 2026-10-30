@@ -1,6 +1,7 @@
 ﻿param(
-  [Parameter(Mandatory = $true)][ValidateSet('start','status','reddots','dms','messages','open','chat','send','quote-send','media-open','share-list','share-open','share-read','share-close','share-watch','watch','search','note-page','reply-comment','counter','tick')][string]$cmd,
+  [Parameter(Mandatory = $true)][ValidateSet('start','status','reddots','dms','messages','open','chat','send','quote-send','media-open','share-list','share-open','share-read','share-close','share-watch','watch','search','note-page','reply-comment','counter','tick','ui','dock','dmback','dmreply')][string]$cmd,
   [string]$arg = '',
+  [string]$arg2 = '',
   [int]$n = 10
 )
 
@@ -74,6 +75,60 @@ function After-Sent {
   return ''
 }
 
+# =====================================================================
+# 三栏常驻（dock）: feed + comment panel + DM list panel, no /chat jump
+#   why: douyin.com/chat is a separate page; every DM there costs a full
+#   navigation. In the feed you can dock a video comment panel (stays while
+#   you scroll) and open the message panel on top of it; clicking a
+#   conversation swaps the list for the chat *inside* that panel, and the
+#   back chevron at the panel's top-left returns to the list.
+#   Two contenteditable boxes then coexist -> every editor lookup MUST be
+#   scoped, otherwise text lands in the comment box (this file used to do
+#   exactly that).
+# =====================================================================
+
+$jsUiState = '(()=>{const vis=e=>{if(!e)return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0};const url=location.href;const items=[...document.querySelectorAll("[data-e2e=conversation-item]")].filter(vis).length;const dlg=vis(document.querySelector("[data-e2e=im-dialog]"))?1:0;const entry=[...document.querySelectorAll("[data-e2e=im-entry]")].filter(vis).length>0||[...document.querySelectorAll("div,span,a")].some(e=>vis(e)&&/^\u6d88\u606f/.test((e.innerText||"").trim()));const tab=[...document.querySelectorAll("div,span")].filter(e=>vis(e)&&/^\u8bc4\u8bba\(\d+\)$/.test((e.innerText||"").trim())).length>0;const v=document.querySelector("video");return (/\/chat/.test(url)?1:0)+"|"+items+"|"+dlg+"|"+(entry?1:0)+"|"+(tab?1:0)+"|"+(!!v&&!v.paused?1:0)+"|"+url.slice(0,90)})()'
+
+function Get-UiState {
+  $s = ((EvalJs $jsUiState) -replace '"', '')
+  $p = $s -split '\|'
+  if ($p.Count -lt 7) { return $null }
+  return [pscustomobject]@{
+    isChat       = ($p[0] -eq '1')
+    items        = [int]$p[1]
+    dialog       = ($p[2] -eq '1')
+    imEntry      = ($p[3] -eq '1')
+    commentPanel = ($p[4] -eq '1')
+    playing      = ($p[5] -eq '1')
+    url          = $p[6]
+  }
+}
+
+# Center of the chat input box ONLY inside the IM dialog (never the comment box).
+function Get-ChatEditorCenter {
+  $js = '(()=>{const d=document.querySelector("[data-e2e=im-dialog]");if(!d)return "";const eds=[...d.querySelectorAll("div[contenteditable=true]")].filter(e=>e.getBoundingClientRect().width>0);if(!eds.length)return "";const r=eds[0].getBoundingClientRect();return Math.round(r.x+r.width/2)+","+Math.round(r.y+r.height/2)})()'
+  return ((EvalJs $js) -replace '"', '')
+}
+
+# Center of a comment editor (inside the comment panel, NOT the IM dialog).
+function Get-CommentEditorCenter {
+  $js = '(()=>{const d=document.querySelector("[data-e2e=im-dialog]");const eds=[...document.querySelectorAll("div[contenteditable=true]")].filter(e=>{if(e.getBoundingClientRect().width<=0)return false;if(d&&d.contains(e))return false;return true});if(!eds.length)return "";const r=eds[0].getBoundingClientRect();return Math.round(r.x+r.width/2)+","+Math.round(r.y+r.height/2)})()'
+  return ((EvalJs $js) -replace '"', '')
+}
+
+# Click a conversation row in the docked DM list; returns "x,y" or "".
+function Open-Conversation([string]$who) {
+  if ($who -match '^\d+$') {
+    return (GetCenter ('[...document.querySelectorAll("[data-e2e=conversation-item]")].filter(e=>e.getBoundingClientRect().width>0)[' + [int]$who + ']'))
+  }
+  $nm = $who.Replace('\', '\\').Replace("'", "\'")
+  $jsFind = "(()=>{const items=[...document.querySelectorAll('[data-e2e=conversation-item]')].filter(e=>e.getBoundingClientRect().width>0);const hit=items.find(e=>((e.innerText||'').split('\n')[0]||'').replace(/\d{1,4}$/,'').trim()==='$nm');if(!hit)return '';const r=hit.getBoundingClientRect();return Math.round(r.x+r.width/2)+','+Math.round(r.y+r.height/2)})()"
+  return ((EvalJs $jsFind) -replace '"', '')
+}
+
+# Click the back chevron at the chat panel's top-left; returns ok|xy or fail|why
+$jsBack = '(()=>{const vis=e=>{if(!e)return false;const r=e.getBoundingClientRect();return r.width>4&&r.height>4};const panel=document.querySelector("[data-e2e=im-dialog]");if(!panel)return "fail|no-chat";const pr=panel.getBoundingClientRect();let cands=[...panel.querySelectorAll("[aria-label],[title],[class*=back],[class*=Back],[data-e2e]")].filter(e=>vis(e)&&/back|\u8fd4\u56de/i.test((e.getAttribute("aria-label")||"")+(e.getAttribute("title")||"")+(e.getAttribute("data-e2e")||"")+(String(e.className||""))));if(!cands.length){cands=[...panel.querySelectorAll("div,span,svg,button")].filter(e=>{const r=e.getBoundingClientRect();return vis(e)&&r.width>8&&r.width<56&&r.height>8&&r.height<56&&r.x<pr.x+70&&r.y<pr.y+80});}if(!cands.length)return "fail|no-back-btn";const e=cands[0];const r=e.getBoundingClientRect();return "ok|"+Math.round(r.x+r.width/2)+","+Math.round(r.y+r.height/2)})()'
+
 $jsIm = '(()=>{const e=document.querySelector("[data-e2e=im-entry]");const s=e?(e.innerText||"").replace(/\n/g,""):"";const m=s.match(/\d+/);return JSON.stringify({raw:s,unread:!!m,n:m?Number(m[0]):0})})()'
 
 switch ($cmd) {
@@ -136,17 +191,22 @@ switch ($cmd) {
   }
 
   'send' {
+    # scoped on purpose: with the comment panel docked there are TWO contenteditable
+    # boxes on screen; the old global lookup could type into the comment box.
     if (-not $arg) { throw 'arg = text to send' }
-    $c = GetCenter '[...document.querySelectorAll("div[contenteditable=true]")].find(x=>x.getBoundingClientRect().width>0)'
-    if (-not $c) { 'NO_EDITOR'; break }
-    InvokeCdp 'ipoint' $c | Out-Null
+    $c = Get-ChatEditorCenter
+    if (-not $c) { 'NO_CHAT_OPEN'; break }
+    [void](InvokeCdp 'ipoint' $c)
     Start-Sleep -Milliseconds 500
-    InvokeCdp 'itext' $arg | Out-Null
+    [void](InvokeCdp 'itext' $arg)
     Start-Sleep -Milliseconds 400
-    InvokeCdp 'ikey' 'Enter' | Out-Null
-    Start-Sleep -Seconds 1
+    [void](InvokeCdp 'ikey' 'Enter')
+    Start-Sleep -Seconds 2
     [void](After-Sent)
-    'sent'
+    $probe = if ($arg.Length -gt 16) { $arg.Substring(0, 16) } else { $arg }
+    $probeJs = ($probe -replace '[\r\n]+', ' ') | ConvertTo-Json -Compress
+    $hit = ((EvalJs ("(()=>{const d=document.querySelector('[data-e2e=im-dialog]');return d?((d.innerText||'').replace(/\\s+/g,' ').includes(" + $probeJs + ")):false})()")) -replace '"', '')
+    if ($hit -eq 'true') { 'sent' } else { 'sent-UNVERIFIED' }
   }
 
   'search' {
@@ -209,8 +269,8 @@ switch ($cmd) {
     Start-Sleep -Milliseconds 900
     $bar = ((EvalJs '(()=>{const eds=[...document.querySelectorAll("div[contenteditable=true]")].filter(e=>e.getBoundingClientRect().width>0);if(!eds.length)return "no_editor";const box=eds[0].closest("div[class]")||eds[0].parentElement;return (box.innerText||"").includes("\u56de\u590d")?"quoted":"no_bar"})()') -replace '"', '')
 
-    # 4) 写字
-    $c = GetCenter '[...document.querySelectorAll("div[contenteditable=true]")].find(x=>x.getBoundingClientRect().width>0)'
+    # 4) 写字（评论框：显式排除私信面板里的输入框）
+    $c = Get-CommentEditorCenter
     if (-not $c) { 'NO_EDITOR'; break }
     [void](InvokeCdp 'ipoint' $c)
     Start-Sleep -Milliseconds 300
@@ -291,8 +351,8 @@ switch ($cmd) {
     # 3) 彻底失败 → 文本里带上被引用的摘录
     if (-not $quoted) { $arg = ('回你那条「' + $summary + '」：') + $arg }
 
-    $c = GetCenter '[...document.querySelectorAll("div[contenteditable=true]")].find(x=>x.getBoundingClientRect().width>0)'
-    if (-not $c) { 'NO_EDITOR'; break }
+    $c = Get-ChatEditorCenter
+    if (-not $c) { 'NO_CHAT_OPEN'; break }
     [void](InvokeCdp 'ipoint' $c)
     Start-Sleep -Milliseconds 400
     [void](InvokeCdp 'itext' $arg)
@@ -422,6 +482,105 @@ switch ($cmd) {
   }
 
   'media-open' { & $PSCommandPath -cmd share-watch -n $n }
+
+  'ui' {
+    $st = Get-UiState
+    if (-not $st) { 'NO_CDP'; break }
+    (@{ url = $st.url; isChatPage = $st.isChat; dmItems = $st.items; chatOpen = $st.dialog; msgEntry = $st.imEntry; commentPanel = $st.commentPanel; videoPlaying = $st.playing } | ConvertTo-Json -Compress)
+  }
+
+  'dock' {
+    # -arg check -> report only ; -arg reset -> navigate to feed first
+    $checkOnly = ($arg -eq 'check')
+    $st = Get-UiState
+    if (-not $st) { 'NO_CDP'; break }
+    $trace = @()
+    if ((-not $checkOnly) -and ($st.isChat -or $arg -eq 'reset')) {
+      EvalJs '(()=>{location.href="https://www.douyin.com/?recommend=1";return "go"})()' | Out-Null
+      Start-Sleep -Seconds 9
+      $trace += 'feed'
+      $st = Get-UiState
+    }
+    if ((-not $checkOnly) -and $st -and -not $st.commentPanel) {
+      # a) right-rail comment counter: a pure number close to the right edge
+      $c = ((EvalJs '(()=>{const els=[...document.querySelectorAll("div,span")].filter(e=>{const t=(e.innerText||"").trim();const r=e.getBoundingClientRect();return /^\d{1,6}$/.test(t)&&r.width>0&&r.height>0&&r.right>window.innerWidth-120&&r.y>window.innerHeight*0.18&&r.y<window.innerHeight*0.90});if(!els.length)return "";const e=els.sort((a,b)=>a.getBoundingClientRect().y-b.getBoundingClientRect().y)[0];const r=e.getBoundingClientRect();return Math.round(r.x+r.width/2)+","+Math.round(r.y+r.height/2)})()') -replace '"', '')
+      if ($c -match '^\d+,\d+$') {
+        [void](InvokeCdp 'ipoint' $c)
+        Start-Sleep -Seconds 3
+        $trace += 'comment-rail'
+        $st = Get-UiState
+      }
+    }
+    if ((-not $checkOnly) -and $st -and -not $st.commentPanel) {
+      # b) open one video, then switch its comment tab
+      $c = GetCenter '[...document.querySelectorAll("a")].filter(e=>/\/video\//.test(e.getAttribute("href")||"")&&e.getBoundingClientRect().width>140)[0]'
+      if ($c -match '^\d+,\d+$') {
+        [void](InvokeCdp 'ipoint' $c)
+        Start-Sleep -Seconds 6
+        $tab = ((EvalJs '(()=>{const t=[...document.querySelectorAll("div,span")].filter(e=>{const s=(e.innerText||"").trim();const r=e.getBoundingClientRect();return /^\u8bc4\u8bba\(\d+\)$/.test(s)&&r.width>20});if(!t.length)return "";const r=t[0].getBoundingClientRect();return Math.round(r.x+r.width/2)+","+Math.round(r.y+r.height/2)})()') -replace '"', '')
+        if ($tab -match '^\d+,\d+$') { [void](InvokeCdp 'ipoint' $tab); Start-Sleep -Seconds 3; $trace += 'video+tab' }
+        $st = Get-UiState
+      }
+    }
+    if ((-not $checkOnly) -and $st -and $st.items -eq 0) {
+      $c = ((EvalJs '(()=>{const e=[...document.querySelectorAll("[data-e2e=im-entry]")].find(x=>x.getBoundingClientRect().width>0)||[...document.querySelectorAll("div,span,a")].find(x=>{const t=(x.innerText||"").trim();const r=x.getBoundingClientRect();return /^\u6d88\u606f/.test(t)&&r.width>0&&r.right>window.innerWidth-40});if(!e)return "";const r=e.getBoundingClientRect();return Math.round(r.x+r.width/2)+","+Math.round(r.y+r.height/2)})()') -replace '"', '')
+      if ($c -match '^\d+,\d+$') {
+        [void](InvokeCdp 'ipoint' $c)
+        Start-Sleep -Seconds 3
+        $trace += 'msg-panel'
+        $st = Get-UiState
+      }
+    }
+    if (-not $st) { 'NO_CDP'; break }
+    $ok = ($st.commentPanel -and $st.items -gt 0 -and -not $st.isChat)
+    if ($ok -and -not $checkOnly) {
+      (@{ at = (Get-Date).ToString('s'); items = $st.items; url = $st.url } | ConvertTo-Json -Compress) |
+        Set-Content -Path (Join-Path $stateDir 'dock.json') -Encoding UTF8
+    }
+    (@{ docked = $ok; steps = @($trace); commentPanel = $st.commentPanel; dmItems = $st.items; chatOpen = $st.dialog; videoPlaying = $st.playing; url = $st.url } | ConvertTo-Json -Compress)
+  }
+
+  'dmback' {
+    $r = ((EvalJs $jsBack) -replace '"', '')
+    if ($r -notmatch '^ok\|(\d+),(\d+)$') { $r; break }
+    [void](InvokeCdp 'ipoint' ($Matches[1] + ',' + $Matches[2]))
+    Start-Sleep -Milliseconds 1500
+    $st = Get-UiState
+    if ($st -and $st.items -gt 0 -and -not $st.dialog) { 'back-ok|' + $st.items } else { 'back-UNVERIFIED|dialog=' + $(if ($st) { $st.dialog } else { '?' }) }
+  }
+
+  'dmreply' {
+    # one-shot: open conversation -> send -> verify -> back to list
+    if (-not $arg) { throw 'arg = conversation name or index' }
+    if (-not $arg2) { throw 'arg2 = text to send' }
+    $st = Get-UiState
+    if (-not $st) { 'NO_CDP'; break }
+    if ($st.items -eq 0) { 'NOT_DOCKED (run -cmd dock first)'; break }
+    $c = Open-Conversation $arg
+    if (-not $c) { 'NOTFOUND'; break }
+    [void](InvokeCdp 'ipoint' $c)
+    $opened = $false
+    for ($i = 0; $i -lt 8; $i++) {
+      Start-Sleep -Milliseconds 500
+      $s2 = Get-UiState
+      if ($s2 -and $s2.dialog) { $opened = $true; break }
+    }
+    if (-not $opened) { 'NO_CHAT_OPEN'; break }
+    $e = Get-ChatEditorCenter
+    if (-not $e) { [void](& $PSCommandPath -cmd dmback); 'NO_CHAT_EDITOR'; break }
+    [void](InvokeCdp 'ipoint' $e)
+    Start-Sleep -Milliseconds 400
+    [void](InvokeCdp 'itext' $arg2)
+    Start-Sleep -Milliseconds 500
+    [void](InvokeCdp 'ikey' 'Enter')
+    Start-Sleep -Seconds 2
+    $probe = if ($arg2.Length -gt 16) { $arg2.Substring(0, 16) } else { $arg2 }
+    $probeJs = ($probe -replace '[\r\n]+', ' ') | ConvertTo-Json -Compress
+    $hit = ((EvalJs ("(()=>{const d=document.querySelector('[data-e2e=im-dialog]');return d?((d.innerText||'').replace(/\\s+/g,' ').includes(" + $probeJs + ")):false})()")) -replace '"', '')
+    [void](After-Sent)
+    $back = & $PSCommandPath -cmd dmback
+    if ($hit -eq 'true') { 'dm-reply|sent|' + $back } else { 'dm-reply|UNVERIFIED|' + $back }
+  }
 
   'counter' {
     if ($arg -eq 'reset') { Set-SentCount 0; 'counter=0' }
